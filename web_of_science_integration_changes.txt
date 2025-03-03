@@ -1,0 +1,225 @@
+# Web of Science API Integration Changes
+
+This file documents all the changes made to integrate the Web of Science Expanded API into the publication-scraper project.
+
+## 1. Added Web of Science API URL to config.py
+
+Added the Web of Science API URL to the configuration file:
+
+```python
+WOS_URL = "https://api.clarivate.com/api/wos"
+```
+
+## 2. Created WebOfScience.py API Class
+
+Created a new API class in pubscraper/APIClasses/WebOfScience.py that implements the Web of Science API integration. This class:
+
+- Extends the Base class
+- Implements the get_publications_by_author method
+- Handles authentication with the Web of Science API using an API key
+- Processes the API response to extract publication details
+- Formats the results to match the expected structure of other API classes
+- Includes a search_multiple_authors function to search for publications by multiple authors
+- Supports enhanced search specificity with middle name handling
+
+The implementation follows the same pattern as the existing API classes, particularly PubMed.py, with adaptations specific to the Web of Science API.
+
+## 9. Enhanced Input Format with Middle Name Support
+
+Modified the input Excel file format and processing to explicitly support middle names:
+
+1. **Updated Excel File Structure**:
+   - Added a dedicated middle_name column to the input Excel file
+   - The Excel file now has columns: root_institution_name, first_name, middle_name, last_name
+
+2. **Updated main.py to Process Middle Names**:
+   ```python
+   first_name = row[1].value if row[1].value else ""
+   middle_name = row[2].value if row[2].value else ""
+   last_name = row[3].value if row[3].value else ""
+   
+   # Construct author name with middle name if present
+   if middle_name:
+       author_name = f"{first_name} {middle_name} {last_name}"
+   else:
+       author_name = f"{first_name} {last_name}"
+   ```
+
+3. **Updated README.md**:
+   - Updated the documentation to show the new Excel format with the middle_name column
+   - Added examples showing how middle names are handled
+
+This enhancement allows users to explicitly specify middle names in the input file, which improves search specificity when querying APIs like Web of Science that can use middle name initials in their search queries.
+
+## 10. Implemented Deduplication Feature
+
+Added a deduplication feature to eliminate duplicate publications found by multiple APIs:
+
+1. **Created Deduplication Function**:
+   ```python
+   def deduplicate_publications(publications):
+       """
+       Deduplicate publications based on DOI or title+authors
+       """
+       deduplicated_pubs = []
+       doi_map = {}  # Map of DOI to index in deduplicated_pubs
+       title_author_map = {}  # Map of title+authors to index in deduplicated_pubs
+       
+       for pub in publications:
+           doi = pub.get("doi", "").strip()
+           title = pub.get("title", "").strip().lower()
+           authors_str = pub.get("authors", "").strip().lower()
+           source = pub.get("from", "Unknown")
+           
+           # Check if we already have this publication by DOI
+           if doi and doi in doi_map:
+               # Update the existing publication's source
+               idx = doi_map[doi]
+               existing_pub = deduplicated_pubs[idx]
+               existing_sources = existing_pub.get("sources", [existing_pub.get("from", "Unknown")])
+               if source not in existing_sources:
+                   existing_sources.append(source)
+               existing_pub["sources"] = existing_sources
+               existing_pub["from"] = ", ".join(existing_sources)
+               continue
+               
+           # Check if we already have this publication by title and authors
+           if title and authors_str and (title, authors_str) in title_author_map:
+               # Update the existing publication's source
+               idx = title_author_map[(title, authors_str)]
+               existing_pub = deduplicated_pubs[idx]
+               existing_sources = existing_pub.get("sources", [existing_pub.get("from", "Unknown")])
+               if source not in existing_sources:
+                   existing_sources.append(source)
+               existing_pub["sources"] = existing_sources
+               existing_pub["from"] = ", ".join(existing_sources)
+               continue
+           
+           # This is a new publication
+           pub["sources"] = [source]
+           deduplicated_pubs.append(pub)
+           
+           # Add to our maps for future reference
+           if doi:
+               doi_map[doi] = len(deduplicated_pubs) - 1
+           if title and authors_str:
+               title_author_map[(title, authors_str)] = len(deduplicated_pubs) - 1
+       
+       return deduplicated_pubs
+   ```
+
+2. **Integrated with Main Processing Flow**:
+   ```python
+   # Deduplicate publications
+   deduplicated_pubs = deduplicate_publications(authors_pubs)
+   logger.info(f"Deduplicated {len(authors_pubs)} publications to {len(deduplicated_pubs)} for author {author}")
+   results.update({author: deduplicated_pubs})
+   ```
+
+3. **Updated Documentation**:
+   - Added deduplication information to README.md
+   - Updated publication_scraper_overview.txt with deduplication workflow details
+
+This enhancement improves the quality of the output by eliminating duplicate entries while preserving information about which APIs found each publication.
+
+## 3. Updated main.py
+
+Modified main.py to:
+
+- Import the WebOfScience class:
+  ```python
+  from pubscraper.APIClasses.WebOfScience import WebOfScience
+  ```
+
+- Add the WebOfScience class to the APIS dictionary:
+  ```python
+  APIS = {
+      "PubMed": PubMed(),
+      "ArXiv": ArXiv(),
+      "MDPI": MDPI(),
+      "Elsevier": Elsevier(),
+      "Springer": Springer(),
+      "Wiley": Wiley(),
+      "CrossRef": CrossRef(),
+      "PLOS": PLOS(),
+      "WebOfScience": WebOfScience(),
+  }
+  ```
+
+## 4. Updated .env.sample
+
+Added the WOS_API_KEY environment variable to the .env.sample file to indicate that users need to provide a Web of Science API key:
+
+```
+WOS_API_KEY=your_web_of_science_api_key
+```
+
+## 5. Updated README.md
+
+Updated the README.md file to include WebOfScience in the list of supported APIs:
+
+```
+-a, --apis [PubMed|ArXiv|MDPI|Elsevier|Springer|Wiley|CrossRef|PLOS|WebOfScience]
+                                  Specify APIs to query  [default: PubMed,
+                                  ArXiv, MDPI, Elsevier, Springer, Wiley,
+                                  CrossRef, PLOS, WebOfScience]
+```
+
+## 6. Created Unit Tests
+
+Created a comprehensive test suite in tests/test_WebOfScience.py to ensure the WebOfScience API class works correctly. The tests follow the same pattern as the other API test files and include:
+
+- Testing the search_multiple_authors function
+- Testing successful API responses
+- Testing error handling
+- Testing edge cases like empty author names and negative row counts
+- Testing malformed API responses
+- Testing middle name handling for enhanced search specificity
+
+The test file uses pytest fixtures and the responses library to mock API responses, following the same approach as the other test files in the project.
+
+## 7. Enhanced Author Name Handling
+
+Improved the WebOfScience API class to better handle author names with middle names:
+
+- Split author names into first name, middle name(s), and last name components
+- Use initials from both first and middle names in the search query
+- Format the query as `AU=(Last_Name First_Initial Middle_Initial*)`
+- Added specific tests for middle name handling to verify the functionality
+
+This enhancement improves search specificity by including middle name initials in the search query, following the same pattern used in other API classes like PubMed.
+
+## 8. Docker Image Rebuild
+
+To use the new WebOfScience API, the Docker image needs to be rebuilt. This can be done by:
+
+1. Removing the existing Docker image:
+   ```bash
+   docker rmi joeleehen/pubscraper:0.1.0
+   ```
+
+2. Running the script again, which will rebuild the image with the new changes:
+   ```bash
+   bash run.sh pubscraper -a WebOfScience
+   ```
+
+## Usage Instructions
+
+To use the Web of Science API:
+
+1. Obtain an API key from Clarivate Analytics (Web of Science)
+2. Add your API key to your `.env` file:
+   ```
+   WOS_API_KEY=your_web_of_science_api_key
+   ```
+3. Run the publication-scraper with the WebOfScience API:
+   ```
+   bash run.sh pubscraper -a WebOfScience
+   ```
+
+Or include it with other APIs:
+```
+bash run.sh pubscraper -a PubMed -a WebOfScience -a ArXiv
+```
+
+The Web of Science API will now be included in the default set of APIs when no `-a` flag is specified.

@@ -30,10 +30,9 @@ Options:
   -o, --output_file TEXT          Specify output file
   -n, --number INTEGER            Specify max number of publications to receive
                                   for each author
-  -a, --apis [PubMed|ArXiv|MDPI|Elsevier|Springer|Wiley|CrossRef|PLOS]
+  -a, --apis [PubMed|CrossRef|WebOfScience]
                                   Specify APIs to query  [default: PubMed,
-                                  ArXiv, MDPI, Elsevier, Springer, Wiley,
-                                  CrossRef, PLOS]
+                                  CrossRef, WebOfScience]
   --list                          List APIs available for querying
   -f, --format [json|csv|xlsx]    Select the output format from: csv, xlsx, or
                                   json.  [default: json]
@@ -48,10 +47,27 @@ To run the scraper with the default options (using the included sample input), i
 By default, the script will request 10 publications from each API for each author, writing the results to `output.json`.
 
 The tool expects an Excel spreadsheet as input, appearing as follows:
-root_institution_name| first_name| last_name|...
----|---|---|---
-The University of Texas| James| Carson| ...
-The University of Texas| Kelsey| Beavers| ...
+root_institution_name| first_name| middle_name| last_name|...
+---|---|---|---|---
+The University of Texas| James| | Carson| ...
+The University of Texas| Kelsey| | Beavers| ...
+The University of Texas| John| Adam| Smith| ...
+
+### Middle Name Support
+
+The tool supports middle names in the input Excel file, which improves search specificity when querying APIs. When a middle name is provided, it is included in the author name and used in API queries. For APIs like Web of Science, the middle name initials are included in the search query to improve accuracy.
+
+### Deduplication
+
+The tool automatically deduplicates publications found by multiple APIs to avoid duplicate entries in the output. Deduplication is performed using the following strategies:
+
+1. **DOI-based deduplication**: Publications with the same DOI are considered duplicates, regardless of other fields.
+2. **Title/Authors-based deduplication**: When DOI is missing, publications with the same title and authors (case-insensitive) are considered duplicates.
+
+When duplicates are found, the output includes:
+- A combined "from" field showing all sources (e.g., "PubMed, CrossRef")
+- A "sources" array listing all APIs that found the publication
+- All other metadata from the first occurrence of the publication
 
 #### Output format can be specified with the `--format` or `-f` flag
 

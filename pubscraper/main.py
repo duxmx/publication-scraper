@@ -14,13 +14,8 @@ from pubscraper.version import __version__
 import pubscraper.config as config
 
 from pubscraper.APIClasses.PubMed import PubMed
-from pubscraper.APIClasses.arXiv import ArXiv
-from pubscraper.APIClasses.MDPI import MDPI
-from pubscraper.APIClasses.Elsevier import Elsevier
-from pubscraper.APIClasses.Springer import Springer
-from pubscraper.APIClasses.Wiley import Wiley
 from pubscraper.APIClasses.CrossRef import CrossRef
-from pubscraper.APIClasses.PLOS import PLOS
+from pubscraper.APIClasses.WebOfScience import WebOfScience
 
 
 LOG_FORMAT = config.LOGGER_FORMAT_STRING
@@ -30,14 +25,72 @@ logger = logging.getLogger(__name__)
 
 APIS = {
     "PubMed": PubMed(),
-    "ArXiv": ArXiv(),
-    "MDPI": MDPI(),
-    "Elsevier": Elsevier(),
-    "Springer": Springer(),
-    "Wiley": Wiley(),
     "CrossRef": CrossRef(),
-    "PLOS": PLOS(),
+    "WebOfScience": WebOfScience(),
 }
+
+
+def deduplicate_publications(publications):
+    """
+    Deduplicate publications based on DOI or title+authors
+    
+    Args:
+        publications (list): List of publication dictionaries
+        
+    Returns:
+        list: Deduplicated list of publications
+    """
+    deduplicated_pubs = []
+    doi_map = {}  # Map of DOI to index in deduplicated_pubs
+    title_author_map = {}  # Map of title+authors to index in deduplicated_pubs
+    duplicates_found = 0
+    
+    for pub in publications:
+        doi = pub.get("doi", "").strip()
+        title = pub.get("title", "").strip().lower()
+        authors_str = pub.get("authors", "").strip().lower()
+        source = pub.get("from", "Unknown")
+        
+        # Check if we already have this publication by DOI
+        if doi and doi in doi_map:
+            # Update the existing publication's source
+            idx = doi_map[doi]
+            existing_pub = deduplicated_pubs[idx]
+            existing_sources = existing_pub.get("sources", [existing_pub.get("from", "Unknown")])
+            if source not in existing_sources:
+                existing_sources.append(source)
+            existing_pub["sources"] = existing_sources
+            existing_pub["from"] = ", ".join(existing_sources)
+            logger.info(f"Found duplicate by DOI: {doi} from {source}, already found in {existing_sources[:-1]}")
+            duplicates_found += 1
+            continue
+            
+        # Check if we already have this publication by title and authors
+        if title and authors_str and (title, authors_str) in title_author_map:
+            # Update the existing publication's source
+            idx = title_author_map[(title, authors_str)]
+            existing_pub = deduplicated_pubs[idx]
+            existing_sources = existing_pub.get("sources", [existing_pub.get("from", "Unknown")])
+            if source not in existing_sources:
+                existing_sources.append(source)
+            existing_pub["sources"] = existing_sources
+            existing_pub["from"] = ", ".join(existing_sources)
+            logger.info(f"Found duplicate by title/authors: '{title}' from {source}, already found in {existing_sources[:-1]}")
+            duplicates_found += 1
+            continue
+        
+        # This is a new publication
+        pub["sources"] = [source]
+        deduplicated_pubs.append(pub)
+        
+        # Add to our maps for future reference
+        if doi:
+            doi_map[doi] = len(deduplicated_pubs) - 1
+        if title and authors_str:
+            title_author_map[(title, authors_str)] = len(deduplicated_pubs) - 1
+    
+    logger.info(f"Deduplicated {len(publications)} publications to {len(deduplicated_pubs)} (found {duplicates_found} duplicates)")
+    return deduplicated_pubs
 
 
 def set_logging_level(ctx, param, value):
@@ -173,8 +226,18 @@ def main(
             next(rows)  # skip header row
             for row in rows:
                 institution = row[0].value
-                author_name = f"{row[1].value} {row[2].value}"
+                first_name = row[1].value if row[1].value else ""
+                middle_name = row[2].value if row[2].value else ""
+                last_name = row[3].value if row[3].value else ""
+                
+                # Construct author name with middle name if present
+                if middle_name:
+                    author_name = f"{first_name} {middle_name} {last_name}"
+                else:
+                    author_name = f"{first_name} {last_name}"
+                
                 name_dict[author_name] = [author_name, institution]
+                logging.debug(f"Processed author: {author_name}")
 
         logging.debug(f"number of names in name_dict: {len(name_dict.keys())}")
     except FileNotFoundError:
@@ -208,8 +271,11 @@ def main(
                             authors_pubs.append(pub)
                     else:
                         authors_pubs.append(pub)
-
-        results.update({author: authors_pubs})
+        
+        # Deduplicate publications
+        deduplicated_pubs = deduplicate_publications(authors_pubs)
+        logger.info(f"Deduplicated {len(authors_pubs)} publications to {len(deduplicated_pubs)} for author {author}")
+        results.update({author: deduplicated_pubs})
         authors_and_pubs.append(results)
         time.sleep(config.TIME_SLEEP)
 

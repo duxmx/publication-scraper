@@ -1,0 +1,125 @@
+# Publication Scraper: Complete Implementation Overview
+
+This document provides a comprehensive overview of the publication-scraper project, explaining how the entire system works together.
+
+## Project Purpose
+
+The publication-scraper is a tool designed to pull publication information associated with given authors from multiple academic publication APIs. It takes an Excel spreadsheet with author names as input and outputs publication data in various formats (JSON, CSV, or XLSX).
+
+## Architecture Overview
+
+The project follows a modular architecture with the following key components:
+
+1. **Main Script (main.py)**: Orchestrates the entire process, handling command-line arguments, input/output, and coordinating API calls.
+
+2. **API Classes**: Each supported publication API has its own class that implements a common interface defined in Base.py.
+
+3. **Configuration (config.py)**: Contains API endpoints and other configuration settings.
+
+4. **Docker Containerization**: The entire application is containerized for easy deployment and execution.
+
+## Workflow
+
+1. **Input Processing**:
+   - The tool reads an Excel spreadsheet containing author names and their institutions.
+   - The expected format has columns for institution name, first name, middle name, and last name.
+   - Middle names are supported to improve search specificity when querying APIs.
+
+2. **API Querying**:
+   - For each author, the tool queries three publication APIs: PubMed, CrossRef, and Web of Science.
+   - Each API class handles the specific requirements of its respective API, including authentication, query formatting, and response parsing.
+   - For Web of Science, middle name initials are included in the search query to improve accuracy.
+   - The tool respects rate limits by adding delays between requests.
+
+3. **Data Processing**:
+   - Publication data from all APIs is collected and organized by author.
+   - Deduplication is performed to eliminate duplicate publications found by multiple APIs.
+   - Optional filtering by publication date can be applied using the cutoff_date parameter.
+
+4. **Deduplication**:
+   - Publications with the same DOI are considered duplicates, regardless of other fields.
+   - When DOI is missing, publications with the same title and authors (case-insensitive) are considered duplicates.
+   - When duplicates are found, the sources are combined and listed in the "from" field and a "sources" array.
+
+5. **Output Generation**:
+   - The deduplicated data is formatted according to the specified output format (JSON, CSV, or XLSX).
+   - The output includes publication details such as title, journal, authors, DOI, publication date, and sources.
+
+## API Integration Pattern
+
+Each API integration follows a common pattern:
+
+1. **Base Class Implementation**:
+   - All API classes extend the Base class.
+   - Each implements the `get_publications_by_author` method with standardized parameters and return values.
+
+2. **Author Name Handling**:
+   - Author names are parsed to match the specific requirements of each API.
+   - For example, PubMed searches by {lastName} {firstInitial}{midInitial}, while Web of Science uses AU=(Last_Name First_Initial Middle_Initial*).
+
+3. **API-Specific Logic**:
+   - Each API class handles its own authentication mechanism (API keys, tokens, etc.).
+   - Query construction is tailored to each API's specific format and parameters.
+   - Response parsing extracts relevant publication details into a standardized format.
+
+4. **Error Handling**:
+   - Each API class implements robust error handling for network issues, API errors, and malformed responses.
+   - Logging is used throughout to provide visibility into the process.
+
+5. **Helper Function**:
+   - Most API classes include a `search_multiple_authors` function that creates an instance of the API class and calls `get_publications_by_author` for each author.
+
+## Key Components in Detail
+
+### 1. Main Script (main.py)
+
+The main script:
+- Parses command-line arguments using Click
+- Reads the input Excel file
+- Coordinates API calls for each author
+- Processes and filters the results
+- Formats and writes the output
+
+### 2. API Classes
+
+Each API class (PubMed.py, arXiv.py, etc.) implements:
+- Authentication with the API
+- Query construction
+- Request sending
+- Response parsing
+- Error handling
+
+### 3. Docker Integration
+
+The project uses Docker for containerization:
+- The Dockerfile defines a multi-stage build process
+- The run.sh script handles building and running the Docker container
+- Environment variables for API keys are passed through a .env file
+
+## Testing
+
+The project includes comprehensive tests for each API class:
+- Unit tests for individual methods
+- Integration tests for API interactions (using mocked responses)
+- Tests for error handling and edge cases
+
+## Usage Patterns
+
+The tool supports several usage patterns:
+- Querying all supported APIs for a list of authors
+- Querying specific APIs for a list of authors
+- Limiting the number of results per author
+- Filtering by publication date
+- Outputting in different formats (JSON, CSV, XLSX)
+
+## Development Workflow
+
+For development:
+- Poetry is used for dependency management
+- A local development workflow is supported without Docker
+- Tests can be run using pytest
+- Version management is handled with poetry-bumpversion
+
+## Conclusion
+
+The publication-scraper is a well-structured, modular application that follows good software engineering practices. Its design allows for easy extension to support additional APIs, and its containerization makes it easy to deploy and use.

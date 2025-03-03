@@ -13,6 +13,7 @@ WILEY_URL = "https://onlinelibrary.wiley.com/action/sru"
 ARXIV_URL = "http://export.arxiv.org/api/query"
 PLOS_URL = "https://api.plos.org/search"
 CROSSREF_URL = "https://api.crossref.org/works"
+WOS_URL = "https://api.clarivate.com/api/wos"
 
 WS_NAME = "Sheet1"
 TIME_SLEEP = 0.4
