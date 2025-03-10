@@ -215,7 +215,7 @@ def main(
     if log_file:
         logger.debug(f"Writing logs to {log_file}")
 
-    logger.info(f"Querying the following APIs:\n{(", ").join(apis)}")
+    logger.info(f"Querying the following APIs:\n{', '.join(apis)}")
     try:
         authors_workbook = load_workbook(filename=input_file, read_only=True)
         worksheet = authors_workbook[config.WS_NAME]

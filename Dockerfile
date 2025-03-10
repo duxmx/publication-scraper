@@ -1,16 +1,18 @@
 FROM python:3.12-bookworm AS poetry
-ENV POETRY_VERSION="1.8.4"
+# Update to latest Poetry version
+ENV POETRY_VERSION="2.1.1"
 
 RUN pip install "poetry==${POETRY_VERSION}"
 
 WORKDIR /publication-scraper
 
-COPY pyproject.toml poetry.lock ./
-
-RUN poetry export -f requirements.txt --output requirements.txt --without-hashes
-
-COPY README.md LICENSE /publication-scraper/
+# Copy all necessary files including deduplication feature
+COPY pyproject.toml poetry.lock README.md LICENSE ./
 COPY pubscraper /publication-scraper/pubscraper/
+
+# Install dependencies and export requirements.txt
+RUN poetry install --no-interaction --no-ansi --no-root && \
+    poetry run pip freeze > requirements.txt
 
 RUN ls
 RUN poetry build
