@@ -88,7 +88,7 @@ def deduplicate_publications(publications):
             doi_map[doi] = len(deduplicated_pubs) - 1
         if title and authors_str:
             title_author_map[(title, authors_str)] = len(deduplicated_pubs) - 1
-    
+    # TODO: This text is a little confusing, rephrase for clarity
     logger.info(f"Deduplicated {len(publications)} publications to {len(deduplicated_pubs)} (found {duplicates_found} duplicates)")
     return deduplicated_pubs
 
