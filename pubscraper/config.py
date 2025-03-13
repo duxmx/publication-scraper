@@ -8,5 +8,5 @@ PUBMED_SUMMARY_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcg
 CROSSREF_URL = "https://api.crossref.org/works"
 WOS_URL = "https://api.clarivate.com/api/wos"
 
-WS_NAME = "Sheet1"
+WS_NAME = "utrc_active_allocations"
 TIME_SLEEP = 0.4
