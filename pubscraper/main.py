@@ -169,7 +169,6 @@ def list_configured_apis(ctx, param, value):
     show_default=True,
     help="Specify APIs to query",
 )
-# TODO: I don't like the help message saying 'available' for querying, rephrase for clarity
 @click.option(
     "--list",
     "list_apis",
@@ -199,7 +198,6 @@ def list_configured_apis(ctx, param, value):
     help="Specify the latest date to pull publications. Example input: 2024 or 2024-05 or 2024-05-10.",
 )
 
-# TODO: batch author names to circumvent rate limits?
 def main(
     log_level,
     log_file,
