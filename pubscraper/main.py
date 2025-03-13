@@ -223,6 +223,8 @@ def main(
         if worksheet.max_row > 1:
             next(rows)  # skip header row
             for row in rows:
+                # TODO: We need to adjust this to match the input file we get from the UTRC reports
+                # - Notice how some users have a middle initial (e.g., Kelsey M), and others do not (e.g., James)
                 institution = row[0].value
                 first_name = row[1].value if row[1].value else ""
                 middle_name = row[2].value if row[2].value else ""
