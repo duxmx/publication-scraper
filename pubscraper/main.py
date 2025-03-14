@@ -88,7 +88,7 @@ def deduplicate_publications(publications):
             doi_map[doi] = len(deduplicated_pubs) - 1
         if title and authors_str:
             title_author_map[(title, authors_str)] = len(deduplicated_pubs) - 1
-    
+    # TODO: This text is a little confusing, rephrase for clarity
     logger.info(f"Deduplicated {len(publications)} publications to {len(deduplicated_pubs)} (found {duplicates_found} duplicates)")
     return deduplicated_pubs
 
@@ -169,7 +169,6 @@ def list_configured_apis(ctx, param, value):
     show_default=True,
     help="Specify APIs to query",
 )
-# TODO: I don't like the help message saying 'available' for querying, rephrase for clarity
 @click.option(
     "--list",
     "list_apis",
@@ -199,7 +198,6 @@ def list_configured_apis(ctx, param, value):
     help="Specify the latest date to pull publications. Example input: 2024 or 2024-05 or 2024-05-10.",
 )
 
-# TODO: batch author names to circumvent rate limits?
 def main(
     log_level,
     log_file,
@@ -225,6 +223,8 @@ def main(
         if worksheet.max_row > 1:
             next(rows)  # skip header row
             for row in rows:
+                # TODO: We need to adjust this to match the input file we get from the UTRC reports
+                # - Notice how some users have a middle initial (e.g., Kelsey M), and others do not (e.g., James)
                 institution = row[0].value
                 first_name = row[1].value if row[1].value else ""
                 middle_name = row[2].value if row[2].value else ""
