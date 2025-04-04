@@ -22,13 +22,24 @@ class WebOfScience(Base):
         self.api_url = config.WOS_URL
         self.api_key = os.getenv("WOS_API_KEY")
 
-    def get_publications_by_author(self, author_name, rows=10):
+    def get_publications_by_author(self, author_name, rows=10, first_name="", middle_initial="", last_name="", institution=""):
         """
         Retrieve publications from Web of Science by author name.
-        :param author_name: The name of the author to search for
-        :param rows: The number of results to return (default is 10)
-        :return: A list of dictionaries containing publication details
+        
+        Args:
+            author_name (str): The full author name (e.g., "John A Smith")
+            rows (int, optional): Maximum number of publications to return. Defaults to 10.
+            first_name (str, optional): The author's first name. Defaults to "".
+            middle_initial (str, optional): The author's middle initial(s). Defaults to "".
+            last_name (str, optional): The author's last name. Defaults to "".
+            institution (str, optional): Institution to filter by. Not used by Web of Science API. Defaults to "".
+            
+        Returns:
+            list: A list of publication dictionaries
         """
+        # Note: Web of Science API doesn't support direct filtering by institution,
+        # so the institution parameter is ignored here. Post-processing filtering
+        # will be applied in main.py if needed.
         logging.debug(f"requesting {rows} publications from {author_name}")
 
         if rows < 0:
@@ -39,29 +50,36 @@ class WebOfScience(Base):
             logging.warning("Received empty string for author name in search query, returning None")
             return None
 
-        # Split the author name into first name, middle name(s), and last name
-        split_name = author_name.split()
-        if len(split_name) == 1:
-            last_name = split_name[0]
-            first_name = ""
-            middle_names = []
-        elif len(split_name) == 2:
-            last_name = split_name[-1]
-            first_name = split_name[0]
-            middle_names = []
+        # Use the provided name components if available, otherwise parse from author_name
+        if first_name and last_name:
+            logging.debug(f"Using provided name components: first_name='{first_name}', middle_initial='{middle_initial}', last_name='{last_name}'")
         else:
-            last_name = split_name[-1]
-            first_name = split_name[0]
-            middle_names = split_name[1:-1]
+            # Split the author name into first name, middle name(s), and last name
+            split_name = author_name.split()
+            if len(split_name) == 1:
+                last_name = split_name[0]
+                first_name = ""
+                middle_initial = ""
+            elif len(split_name) == 2:
+                last_name = split_name[-1]
+                first_name = split_name[0]
+                middle_initial = ""
+            else:
+                last_name = split_name[-1]
+                first_name = split_name[0]
+                # Extract middle initials from middle names
+                middle_initial = ""
+                for middle_name in split_name[1:-1]:
+                    if middle_name:
+                        middle_initial += middle_name[0]
 
         # Construct the query for Web of Science
         # Format: AU=(Last_Name First_Initial Middle_Initial*)
         initials = ""
         if first_name:
             initials = first_name[0]
-        for middle_name in middle_names:
-            if middle_name:
-                initials += middle_name[0]
+        if middle_initial:
+            initials += middle_initial
         
         query = f"AU=({last_name} {initials}*)"
         logging.debug(f"Web of Science query: {query}")

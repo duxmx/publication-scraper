@@ -1,6 +1,7 @@
 import requests
 import json
 import logging
+import time
 from dateutil.parser import parse
 
 from pubscraper.APIClasses.Base import Base
@@ -21,6 +22,50 @@ This is a slow process, and we should think about better solutions
 class CrossRef(Base):
     def __init__(self):
         self.base_url = config.CROSSREF_URL
+        self.last_request_time = 0
+        self.requests_per_second = 20  # CrossRef can handle 50 requests/sec with mailto, we'll use 20 to be safe
+        
+    def _make_request(self, url, params=None, timeout=10):
+        """
+        Make a rate-limited request to the CrossRef API
+        
+        This method enforces a rate limit of 20 requests per second to avoid
+        overwhelming the CrossRef API and getting rate-limited.
+        
+        Args:
+            url (str): The URL to request
+            params (dict, optional): Query parameters. Defaults to None.
+            timeout (int, optional): Request timeout in seconds. Defaults to 10.
+            
+        Returns:
+            requests.Response: The response from the API
+            
+        Raises:
+            requests.exceptions.RequestException: If the request fails
+        """
+        # Calculate time since last request
+        current_time = time.time()
+        time_since_last_request = current_time - self.last_request_time
+        
+        # Calculate minimum time between requests based on rate limit
+        min_interval = 1.0 / self.requests_per_second
+        
+        # Sleep if we need to wait to respect rate limit
+        if time_since_last_request < min_interval:
+            sleep_time = min_interval - time_since_last_request
+            logger.debug(f"Rate limiting: sleeping for {sleep_time:.2f} seconds")
+            time.sleep(sleep_time)
+        
+        # Make the request
+        response = requests.get(url, params=params, timeout=timeout)
+        
+        # Update last request time
+        self.last_request_time = time.time()
+        
+        # Check for errors
+        response.raise_for_status()
+        
+        return response
 
     # TODO: should these extract methods be squished to one method w a switch? ask erik
     def _extract_journal(self, publication_item):
@@ -106,11 +151,11 @@ class CrossRef(Base):
         }
         
         try:
-            response = requests.get(self.base_url, params=params, timeout=10)
-            response.raise_for_status()
+            response = self._make_request(self.base_url, params=params, timeout=10)
         except requests.exceptions.RequestException as e:
             logging.error(f"CrossRef API request error: {e}")
-            return []
+            # Return a tuple with 0 total results and an empty list of publications
+            return 0, []
 
         data = response.json()
         logging.debug(json.dumps(data, indent=2))
@@ -154,7 +199,24 @@ class CrossRef(Base):
 
         return total_results, publications
 
-    def get_publications_by_author(self, author: str, rows: int = 10):
+    def get_publications_by_author(self, author: str, rows: int = 10, first_name: str = "", middle_initial: str = "", last_name: str = "", institution: str = ""):
+        """
+        Get publications by author name from CrossRef
+        
+        Args:
+            author (str): The full author name (e.g., "John A Smith")
+            rows (int, optional): Maximum number of publications to return. Defaults to 10.
+            first_name (str, optional): The author's first name. Defaults to "".
+            middle_initial (str, optional): The author's middle initial(s). Defaults to "".
+            last_name (str, optional): The author's last name. Defaults to "".
+            institution (str, optional): Institution to filter by. Not used by CrossRef API. Defaults to "".
+            
+        Returns:
+            list: A list of publication dictionaries
+        """
+        # Note: CrossRef API doesn't support direct filtering by institution,
+        # so the institution parameter is ignored here. Post-processing filtering
+        # will be applied in main.py if needed.
         if rows < 0:
             logging.error(f"Rows must be a positive number (received {rows})")
             raise ValueError("Rows must be a positive number")
@@ -162,36 +224,50 @@ class CrossRef(Base):
         if author == "":
             logging.warning("received empty string for author name, returning None")
             return None
+            
+        # Construct a more accurate search query if we have the parsed name components
+        search_author = author
+        if first_name and last_name:
+            # Format the author name for CrossRef search
+            # CrossRef works well with "Lastname, Firstname MiddleInitial"
+            formatted_name = last_name
+            if first_name:
+                formatted_name += ", " + first_name
+                if middle_initial:
+                    formatted_name += " " + middle_initial
+            
+            logging.debug(f"Using formatted name for CrossRef search: {formatted_name}")
+            search_author = formatted_name
 
         publications = []
         desired_rows = rows
         offset = len(publications)
         logging.debug(
-            f"Initial request: requesting {rows} publications from {author} (offset = {offset})"
+            f"Initial request: requesting {rows} publications from {search_author} (offset = {offset})"
         )
         while len(publications) < desired_rows:
-            total_results, pubs = self._aggregate_publications(author, rows, offset)
+            total_results, pubs = self._aggregate_publications(search_author, rows, offset)
             if pubs is None:
                 # an error occured in _aggregate_publications, return None
                 return None
 
-            logging.debug(f"Received {len(pubs)} valid publications for {author}")
+            logging.debug(f"Received {len(pubs)} valid publications for {search_author}")
             publications += pubs
 
             if total_results < rows:
                 logging.warning(
-                    f"Requested {rows} publications from {author}, found {total_results}"
+                    f"Requested {rows} publications from {search_author}, found {total_results}"
                 )
                 return publications
 
             offset += rows
             rows -= len(pubs)
             logging.debug(
-                f"Requesting {rows} more publications by {author} (offset = {offset})"
+                f"Requesting {rows} more publications by {search_author} (offset = {offset})"
             )
 
         logging.debug(
-            f"Retrieved {len(publications)} publications by {author} from CrossRef"
+            f"Retrieved {len(publications)} publications by {search_author} from CrossRef"
         )
         return publications or None
 

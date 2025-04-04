@@ -38,6 +38,10 @@ Options:
                                   json.  [default: json]
   -cd, --cutoff_date TEXT         Specify the latest date to pull publications.
                                   Example input: 2024 or 2024-05 or 2024-05-10.
+  -aff, --affiliation TEXT        Fallback keyword for filtering publications by
+                                  affiliation when an author's institution is not
+                                  available in the Excel file. [default: University
+                                  of Texas]
   --help                          Show this message and exit.
 ```
 To run the scraper with the default options (using the included sample input), invoke the `pubscraper` command:
@@ -47,15 +51,43 @@ To run the scraper with the default options (using the included sample input), i
 By default, the script will request 10 publications from each API for each author, writing the results to `output.json`.
 
 The tool expects an Excel spreadsheet as input, appearing as follows:
-root_institution_name| first_name| middle_name| last_name|...
----|---|---|---|---
-The University of Texas| James| | Carson| ...
-The University of Texas| Kelsey| | Beavers| ...
-The University of Texas| John| Adam| Smith| ...
+root_institution_name| resource_name| resource_type| last_name| first_name| email| login|...
+---|---|---|---|---|---|---|---
+University of Texas at Austin (utexas.edu)| Frontera| HPC| Carson| James| null| null|...
+University of Texas at Arlington (uta.edu)| Lonestar6| HPC| Beavers| Kelsey M| null| null|...
+University of Texas at Dallas (utdallas.edu)| Lonestar6| HPC| Allen| William| null| null|...
+
+Note that the first_name column may include middle initials (e.g., "Kelsey M"). The tool automatically parses these to extract the first name and middle initial.
 
 ### Middle Name Support
 
-The tool supports middle names in the input Excel file, which improves search specificity when querying APIs. When a middle name is provided, it is included in the author name and used in API queries. For APIs like Web of Science, the middle name initials are included in the search query to improve accuracy.
+The tool supports middle names in the input Excel file, which improves search specificity when querying APIs. When a middle name is provided, it is included in the author name and used in API queries.
+
+The tool now includes enhanced name parsing that extracts first name, middle initial, and last name components from the full author name. This allows for more accurate API queries by:
+
+1. **Extracting middle initials**: The system automatically identifies and extracts middle initials from the author name.
+2. **API-specific formatting**: Each API class formats the name components according to its specific requirements:
+   - **PubMed**: Uses `LastName+FirstInitialMiddleInitial[Author Name]` format
+   - **Web of Science**: Uses `AU=(LastName FirstInitialMiddleInitial*)` format
+   - **CrossRef**: Uses `LastName, FirstName MiddleInitial` format
+
+This enhancement significantly improves search accuracy, especially for authors with common last names where middle initials are crucial for correct identification.
+
+### Affiliation Filtering
+
+The tool now supports filtering publications based on author affiliations:
+
+1. **Institution-based filtering**: By default, each author's publications are filtered to only include those where at least one author has an affiliation matching the institution from the Excel file.
+2. **Author-specific filtering**: Each author's publications are filtered based on their specific institution from the input Excel file.
+3. **Fallback option**: If an author's institution is not available in the Excel file, the tool uses the global affiliation parameter (default: "University of Texas").
+
+This feature ensures that only publications with relevant institutional affiliations are included in the results, helping to focus on publications that are most relevant to your institution.
+
+To use a different fallback affiliation when an author's institution is not available:
+
+```console
+> bash run.sh pubscraper --affiliation "Harvard University"
+```
 
 ### Deduplication
 

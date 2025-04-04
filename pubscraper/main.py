@@ -30,6 +30,94 @@ APIS = {
 }
 
 
+def parse_first_name_and_middle_initial(first_name):
+    """
+    Parse a first name string to extract the first name and middle initial
+    
+    This function handles cases where the middle initial is included with the first name.
+    For example, "John A" would be parsed as first_name="John", middle_initial="A"
+    
+    Special handling for cases where the first name is just an initial:
+    - "M" -> first_name="M", middle_initial=""
+    - "M Brooke" -> first_name="M", middle_initial="B" (preserving the full middle name in the author_name)
+    
+    Args:
+        first_name (str): The first name string, potentially including middle initial(s)
+        
+    Returns:
+        tuple: (first_name, middle_initial, full_middle_name)
+    """
+    if not first_name:
+        return "", "", ""
+        
+    # Split the first name string into parts
+    parts = first_name.strip().split()
+    
+    # If there's only one part, it's just the first name
+    if len(parts) <= 1:
+        return first_name, "", ""
+        
+    # The first part is the first name
+    parsed_first_name = parts[0]
+    
+    # The rest are potential middle names
+    middle_parts = parts[1:]
+    middle_initial = ""
+    full_middle_name = " ".join(middle_parts)
+    
+    # Extract initials from middle parts
+    for part in middle_parts:
+        # If it's a single character or a character followed by a period, it's an initial
+        if len(part) == 1 or (len(part) == 2 and part[1] == '.'):
+            middle_initial += part[0]
+        # If it's a longer word, we'll just take the first character as the initial
+        else:
+            middle_initial += part[0]
+    
+    return parsed_first_name, middle_initial, full_middle_name
+
+
+def filter_publications_by_affiliation(publications, keyword="University of Texas"):
+    """
+    Filter publications to only include those where at least one author has the specified affiliation keyword
+    
+    Args:
+        publications (list): List of publication dictionaries
+        keyword (str, optional): Keyword to search for in author affiliations. Defaults to "University of Texas".
+        
+    Returns:
+        list: Filtered list of publications
+    """
+    if not publications:
+        return []
+        
+    filtered_pubs = []
+    
+    for pub in publications:
+        # Check if the publication has author affiliation data
+        if "authors_with_affiliations" not in pub:
+            # Skip publications without affiliation data
+            continue
+            
+        # Check if any author has the specified affiliation
+        has_matching_affiliation = False
+        
+        for author in pub.get("authors_with_affiliations", []):
+            for affiliation in author.get("affiliations", []):
+                if keyword.lower() in affiliation.lower():
+                    has_matching_affiliation = True
+                    break
+                    
+            if has_matching_affiliation:
+                break
+                
+        # If at least one author has the matching affiliation, include this publication
+        if has_matching_affiliation:
+            filtered_pubs.append(pub)
+            
+    return filtered_pubs
+
+
 def deduplicate_publications(publications):
     """
     Deduplicate publications based on DOI or title+authors
@@ -197,6 +285,45 @@ def list_configured_apis(ctx, param, value):
     show_default=True,
     help="Specify the latest date to pull publications. Example input: 2024 or 2024-05 or 2024-05-10.",
 )
+@click.option(
+    "--institution-column",
+    type=str,
+    default=None,
+    help="Specify the name of the institution column in the Excel file if it's not one of the standard names (institution, root_institution_name, institution_name).",
+)
+@click.option(
+    "--first-name-column",
+    type=str,
+    default=None,
+    help="Specify the name of the first name column in the Excel file if it's not one of the standard names (first_name, firstname, first).",
+)
+@click.option(
+    "--last-name-column",
+    type=str,
+    default=None,
+    help="Specify the name of the last name column in the Excel file if it's not one of the standard names (last_name, lastname, last, surname).",
+)
+@click.option(
+    "--middle-name-column",
+    type=str,
+    default=None,
+    help="Specify the name of the middle name column in the Excel file if it's not one of the standard names (middle_name, middlename, middle, middle_initial).",
+)
+@click.option(
+    "--affiliation",
+    "-aff",
+    type=str,
+    default="University of Texas",
+    show_default=True,
+    help="Fallback keyword for filtering publications by affiliation when an author's institution is not available in the Excel file.",
+)
+@click.option(
+    "--filter-by-affiliation",
+    is_flag=True,
+    default=True,
+    show_default=True,
+    help="Enable filtering publications by affiliation. Set to false with --no-filter-by-affiliation to disable.",
+)
 
 def main(
     log_level,
@@ -208,6 +335,12 @@ def main(
     list_apis,
     format,
     cutoff_date,
+    institution_column,
+    first_name_column,
+    last_name_column,
+    middle_name_column,
+    affiliation,
+    filter_by_affiliation,
 ):
     logger.debug(f"Logging is set to level {logging.getLevelName(log_level)}")
     if log_file:
@@ -221,14 +354,82 @@ def main(
 
         name_dict = {}
         if worksheet.max_row > 1:
-            next(rows)  # skip header row
+            # Get the header row to find column indices by name
+            header_row = next(rows)
+            headers = [cell.value for cell in header_row]
+            
+            # Find indices for required columns
+            column_indices = {}
+            required_columns = ["institution", "first_name", "middle_name", "last_name"]
+            
+            # Map column names to their indices
+            for i, header in enumerate(headers):
+                if header:
+                    header_lower = header.lower()
+                    # Check for variations of column names
+                    # Check for custom column names first, then fall back to standard names
+                    if institution_column and header_lower == institution_column.lower():
+                        column_indices["institution"] = i
+                        logger.debug(f"Using custom institution column: {institution_column}")
+                    elif first_name_column and header_lower == first_name_column.lower():
+                        column_indices["first_name"] = i
+                        logger.debug(f"Using custom first name column: {first_name_column}")
+                    elif last_name_column and header_lower == last_name_column.lower():
+                        column_indices["last_name"] = i
+                        logger.debug(f"Using custom last name column: {last_name_column}")
+                    elif middle_name_column and header_lower == middle_name_column.lower():
+                        column_indices["middle_name"] = i
+                        logger.debug(f"Using custom middle name column: {middle_name_column}")
+                    # Fall back to standard column names
+                    elif header_lower in ["institution", "root_institution_name", "institution_name"]:
+                        column_indices["institution"] = i
+                    elif header_lower in ["first_name", "firstname", "first"]:
+                        column_indices["first_name"] = i
+                    elif header_lower in ["middle_name", "middlename", "middle", "middle_initial"]:
+                        column_indices["middle_name"] = i
+                    elif header_lower in ["last_name", "lastname", "last", "surname"]:
+                        column_indices["last_name"] = i
+            
+            # Log found columns
+            logger.debug(f"Found columns: {column_indices}")
+            
+            # Check if required columns were found
+            missing_columns = [col for col in ["first_name", "last_name"] if col not in column_indices]
+            if missing_columns:
+                logger.error(f"Required columns not found in Excel file: {missing_columns}")
+                logger.error(f"Available columns: {headers}")
+                exit(1)
+            
+            # Process each row
             for row in rows:
-                # TODO: We need to adjust this to match the input file we get from the UTRC reports
-                # - Notice how some users have a middle initial (e.g., Kelsey M), and others do not (e.g., James)
-                institution = row[0].value
-                first_name = row[1].value if row[1].value else ""
-                middle_name = row[2].value if row[2].value else ""
-                last_name = row[3].value if row[3].value else ""
+                # Get values using column indices
+                institution = ""
+                if "institution" in column_indices:
+                    institution = row[column_indices["institution"]].value if row[column_indices["institution"]].value else ""
+                first_name = row[column_indices["first_name"]].value if row[column_indices["first_name"]].value else ""
+                
+                # Middle name is optional
+                middle_name = ""
+                if "middle_name" in column_indices:
+                    middle_name = row[column_indices["middle_name"]].value if row[column_indices["middle_name"]].value else ""
+                
+                last_name = row[column_indices["last_name"]].value if row[column_indices["last_name"]].value else ""
+                
+                # Parse first name to extract any middle initial that might be included
+                parsed_first_name, first_name_middle_initial, full_middle_name = parse_first_name_and_middle_initial(first_name)
+                
+                # If we found a middle initial in the first name, use it if no middle name was provided
+                if first_name_middle_initial and not middle_name:
+                    # If we have a full middle name, use that instead of just the initial
+                    if full_middle_name:
+                        middle_name = full_middle_name
+                        logger.debug(f"Extracted full middle name '{middle_name}' from first name '{first_name}'")
+                    else:
+                        middle_name = first_name_middle_initial
+                        logger.debug(f"Extracted middle initial '{middle_name}' from first name '{first_name}'")
+                    
+                    # Update first name to the parsed version (without middle initial)
+                    first_name = parsed_first_name
                 
                 # Construct author name with middle name if present
                 if middle_name:
@@ -236,7 +437,7 @@ def main(
                 else:
                     author_name = f"{first_name} {last_name}"
                 
-                name_dict[author_name] = [author_name, institution]
+                name_dict[author_name] = {"name": author_name, "institution": institution}
                 logging.debug(f"Processed author: {author_name}")
 
         logging.debug(f"number of names in name_dict: {len(name_dict.keys())}")
@@ -253,9 +454,62 @@ def main(
         results = {author: []}
         # FIXME: we should filter by date before the API queries (if the API supports date filtering)
         authors_pubs = []
+        
+        # Get author info from the dictionary
+        author_info = name_dict[author]
+        author_parts = author.split()
+        
+        # Extract name components
+        if len(author_parts) >= 2:
+            # Get the first and last parts of the name
+            raw_first_name = author_parts[0]
+            last_name = author_parts[-1]
+            
+            # Parse the first name to extract any middle initial that might be included
+            first_name, first_name_middle_initial, full_middle_name = parse_first_name_and_middle_initial(raw_first_name)
+            
+            # Extract middle initial from middle parts of the name
+            middle_initial = ""
+            if len(author_parts) > 2:
+                # Join all middle parts
+                middle_parts = author_parts[1:-1]
+                # Extract initials from middle parts
+                for part in middle_parts:
+                    if len(part) == 1 or (len(part) == 2 and part[1] == '.'):
+                        middle_initial += part[0]
+            
+            # If we found a middle initial in the first name, add it to any existing middle initial
+            if first_name_middle_initial:
+                # If we have a full middle name from the first name, use it for better matching
+                if full_middle_name:
+                    # Add the full middle name to the author name for better matching in the API
+                    author_parts.insert(1, full_middle_name)
+                    logger.debug(f"Added full middle name '{full_middle_name}' from first name to author name")
+                
+                middle_initial = first_name_middle_initial + middle_initial
+                logger.debug(f"Added middle initial '{first_name_middle_initial}' from first name to existing middle initial")
+        else:
+            # Default values if name parsing fails
+            first_name = author
+            middle_initial = ""
+            last_name = ""
+        
+        # Get institution from author info
+        institution = author_info.get("institution", "")
+        
+        logger.debug(f"Parsed author: '{author}' into first_name='{first_name}', middle_initial='{middle_initial}', last_name='{last_name}', institution='{institution}'")
+        
         for api_name in apis:
             api = APIS[api_name]
-            pubs_found = api.get_publications_by_author(author, number)
+            # Pass the parsed name components and institution to the API
+            pubs_found = api.get_publications_by_author(
+                author, 
+                number,
+                first_name=first_name,
+                middle_initial=middle_initial,
+                last_name=last_name,
+                institution=institution
+            )
             if pubs_found:
                 for pub in pubs_found:
                     publication_date_str = pub.get("publication_date", "")
@@ -275,7 +529,31 @@ def main(
         # Deduplicate publications
         deduplicated_pubs = deduplicate_publications(authors_pubs)
         logger.info(f"Deduplicated {len(authors_pubs)} publications to {len(deduplicated_pubs)} for author {author}")
-        results.update({author: deduplicated_pubs})
+        
+        # Apply affiliation filtering if enabled
+        if filter_by_affiliation:
+            # Get the author's institution from the Excel file
+            author_institution = author_info.get("institution", "")
+            
+            # Use the author's institution for filtering if available, otherwise use the global affiliation parameter
+            filter_keyword = author_institution if author_institution else affiliation
+            
+            # For PubMed, we've already filtered by institution in the API call
+            # For other APIs, we need to apply post-processing filtering
+            if "PubMed" in apis and len(apis) == 1:
+                # If only PubMed is being used, no need for post-processing filtering
+                filtered_pubs = deduplicated_pubs
+                logger.info(f"Using {len(filtered_pubs)} publications for author {author} (pre-filtered by PubMed API)")
+            else:
+                # Apply post-processing filtering for other APIs or when multiple APIs are used
+                filtered_pubs = filter_publications_by_affiliation(deduplicated_pubs, keyword=filter_keyword)
+                logger.info(f"Filtered {len(deduplicated_pubs)} publications to {len(filtered_pubs)} with '{filter_keyword}' affiliation for author {author}")
+        else:
+            # Skip affiliation filtering
+            filtered_pubs = deduplicated_pubs
+            logger.info(f"Skipping affiliation filtering (disabled by user). Using all {len(filtered_pubs)} publications for author {author}")
+        
+        results.update({author: filtered_pubs})
         authors_and_pubs.append(results)
         time.sleep(config.TIME_SLEEP)
 
