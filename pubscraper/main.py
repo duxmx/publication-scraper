@@ -77,13 +77,58 @@ def parse_first_name_and_middle_initial(first_name):
     return parsed_first_name, middle_initial, full_middle_name
 
 
-def filter_publications_by_affiliation(publications, keyword="University of Texas"):
+def _is_same_author(name1, name2):
     """
-    Filter publications to only include those where at least one author has the specified affiliation keyword
+    Check if two author names likely refer to the same person
+    
+    Args:
+        name1 (str): First author name
+        name2 (str): Second author name
+        
+    Returns:
+        bool: True if names likely refer to the same person
+    """
+    # Normalize names (lowercase, remove extra spaces)
+    name1 = " ".join(name1.lower().split())
+    name2 = " ".join(name2.lower().split())
+    
+    # If names are exactly the same, return True
+    if name1 == name2:
+        return True
+    
+    # Split names into parts
+    parts1 = name1.split()
+    parts2 = name2.split()
+    
+    # Check if last names match
+    if parts1[-1] != parts2[-1]:
+        return False
+    
+    # Check if first initials match
+    if parts1[0][0] != parts2[0][0]:
+        return False
+    
+    # If we have middle initials, check if they match
+    if len(parts1) > 2 and len(parts2) > 2:
+        # Get middle initials
+        mid1 = parts1[1][0] if len(parts1[1]) >= 1 else ""
+        mid2 = parts2[1][0] if len(parts2[1]) >= 1 else ""
+        
+        if mid1 and mid2 and mid1 != mid2:
+            return False
+    
+    return True
+
+
+def filter_publications_by_affiliation(publications, keyword="University of Texas", target_author=None):
+    """
+    Filter publications to only include those where the target author has the specified affiliation
     
     Args:
         publications (list): List of publication dictionaries
         keyword (str, optional): Keyword to search for in author affiliations. Defaults to "University of Texas".
+        target_author (str, optional): If provided, only check affiliations for this specific author.
+                                      If None, check all authors.
         
     Returns:
         list: Filtered list of publications
@@ -99,20 +144,24 @@ def filter_publications_by_affiliation(publications, keyword="University of Texa
             # Skip publications without affiliation data
             continue
             
-        # Check if any author has the specified affiliation
-        has_matching_affiliation = False
+        # Check if the target author has the specified affiliation
+        target_author_has_matching_affiliation = False
         
         for author in pub.get("authors_with_affiliations", []):
+            # If target_author is specified, only check that specific author
+            if target_author and not _is_same_author(author["name"], target_author):
+                continue
+                
             for affiliation in author.get("affiliations", []):
                 if keyword.lower() in affiliation.lower():
-                    has_matching_affiliation = True
+                    target_author_has_matching_affiliation = True
                     break
                     
-            if has_matching_affiliation:
+            if target_author_has_matching_affiliation:
                 break
                 
-        # If at least one author has the matching affiliation, include this publication
-        if has_matching_affiliation:
+        # Only include publication if the target author has the matching affiliation
+        if target_author_has_matching_affiliation:
             filtered_pubs.append(pub)
             
     return filtered_pubs
@@ -546,7 +595,11 @@ def main(
                 logger.info(f"Using {len(filtered_pubs)} publications for author {author} (pre-filtered by PubMed API)")
             else:
                 # Apply post-processing filtering for other APIs or when multiple APIs are used
-                filtered_pubs = filter_publications_by_affiliation(deduplicated_pubs, keyword=filter_keyword)
+                filtered_pubs = filter_publications_by_affiliation(
+                    deduplicated_pubs, 
+                    keyword=filter_keyword,
+                    target_author=author  # Pass the author name to check affiliations for this specific author
+                )
                 logger.info(f"Filtered {len(deduplicated_pubs)} publications to {len(filtered_pubs)} with '{filter_keyword}' affiliation for author {author}")
         else:
             # Skip affiliation filtering
